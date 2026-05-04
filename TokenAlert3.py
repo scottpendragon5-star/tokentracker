@@ -49,7 +49,7 @@ async def get_dexscreener_data(mint: str) -> dict:
 
 
 # ── フィルター ─────────────────────────────────
-BLACKLIST_KEYWORDS = ["safe", "moon", "inu", "elon", "doge2", "baby"]
+BLACKLIST_KEYWORDS = ["safe", "moon", "inu", "elon", "doge2", "baby", "butt"]
 
 async def passes_filter(data: dict) -> tuple[bool, list[str]]:
     reasons = []
@@ -110,22 +110,22 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
     buys = txns_h1.get("buys", 0)
     sells = txns_h1.get("sells", 0)
 
-    # 条件6: 1H総取引件数 ≥ 50（makersの代替）
+    # 条件6: 1H総取引件数 ≥ 10（makersの代替）
     total_txns = buys + sells
-    if total_txns < 50:
+    if total_txns < 10:
         print(f"❌ {name} 取引件数不足: {total_txns}件")
         return False, []
     reasons.append(f"✅ 1H取引: {total_txns}件")
 
-    # 条件7: 買い/売り比率 ≥ 2.0
-    if sells == 0 or buys / sells < 2.0:
+    # 条件7: 買い/売り比率 ≥ 1.5
+    if sells == 0 or buys / sells < 1.5:
         print(f"❌ {name} 買い優勢でない: {buys}買/{sells}売")
         return False, []
     reasons.append(f"✅ 買い優勢: {buys}買/{sells}売")
 
-    # 条件8: 1H価格上昇 ≥ 20%
+    # 条件8: 1H価格上昇 ≥ 5%
     price_change_1h = dex.get("priceChange", {}).get("h1", 0)
-    if price_change_1h < 20:
+    if price_change_1h < 5:
         print(f"❌ {name} 価格上昇不足: +{price_change_1h:.1f}%")
         return False, []
     reasons.append(f"✅ 1H: +{price_change_1h:.1f}%")
