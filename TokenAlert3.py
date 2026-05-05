@@ -117,6 +117,11 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
         return False, []
     reasons.append(f"✅ 1H取引: {total_txns}件")
 
+    # 条件6.5: 1H総取引件数 ≤ 200（買われすぎ除外）
+    if total_txns > 200:
+        print(f"❌ {name} 買われすぎ: {total_txns}件")
+        return False, []
+
     # 条件7: 買い/売り比率 ≥ 1.5
     if sells == 0 or buys / sells < 1.5:
         print(f"❌ {name} 買い優勢でない: {buys}買/{sells}売")
