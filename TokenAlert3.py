@@ -49,7 +49,7 @@ async def get_dexscreener_data(mint: str) -> dict:
 
 
 # ── フィルター ─────────────────────────────────
-BLACKLIST_KEYWORDS = ["safe", "moon", "inu", "elon", "doge2", "baby", "butt"]
+BLACKLIST_KEYWORDS = ["safe", "moon", "inu", "elon", "doge2", "baby", "butt", "nigg"]
 
 async def passes_filter(data: dict) -> tuple[bool, list[str]]:
     reasons = []
