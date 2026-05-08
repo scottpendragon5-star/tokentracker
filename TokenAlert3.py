@@ -48,12 +48,19 @@ async def get_dexscreener_data(mint: str) -> dict:
         return {}
 
 
+# ── ヘッダー画像チェック ────────────────────────
+def has_header_image(dex: dict) -> bool:
+    return bool(dex.get("info", {}).get("header", ""))
+
+
 # ── フィルター ─────────────────────────────────
 BLACKLIST_KEYWORDS = ["safe", "moon", "inu", "elon", "doge2", "baby"]
 
 async def passes_filter(data: dict) -> tuple[bool, list[str]]:
     reasons = []
     mint = data.get("mint", "")
+
+    # フェーズ1: 即時フィルター（Pump.funデータ）
 
     # 条件1: 初期購入 ≥ 0.05 SOL（solAmountがSOL実額、initialBuyはトークン数量）
     sol_amount = data.get("solAmount", 0)
@@ -84,13 +91,15 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
     if dev:
         dev_balance = await get_sol_balance(dev)
         if dev_balance < 3.0:
+            print(f"❌ {name} Dev残高不足: {dev_balance:.2f} SOL")
             return False, []
         reasons.append(f"✅ Dev残高: {dev_balance:.2f} SOL")
 
-    # 3分待ってDexScreenerで確認
-    print(f"⏳ {name} を3分後にDexScreenerで確認...")
-    await asyncio.sleep(180)
-    print(f"⏱ 3分経過: {name}")
+    # フェーズ2: DexScreenerフィルター（300秒後）
+
+    print(f"⏳ {name} を300秒後にDexScreenerで確認...")
+    await asyncio.sleep(300)
+    print(f"⏱ 300秒経過: {name}")
 
     # DexScreenerへの反映遅延に備えて最大3回リトライ（30秒間隔）
     dex = {}
@@ -106,38 +115,18 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
         print(f"❌ {name} DexScreenerに登録されていません")
         return False, []
 
+    # 条件6: 1H総取引件数 ≥ 50（MAKERS数の代替）
     txns_h1 = dex.get("txns", {}).get("h1", {})
     buys = txns_h1.get("buys", 0)
     sells = txns_h1.get("sells", 0)
-
-    # 条件6: 1H総取引件数 ≥ 50（makersの代替）
     total_txns = buys + sells
     if total_txns < 50:
         print(f"❌ {name} 取引件数不足: {total_txns}件")
         return False, []
     reasons.append(f"✅ 1H取引: {total_txns}件")
 
-    # 条件6.5: 1H総取引件数 ≤ 200（買われすぎ除外）
-    if total_txns > 200:
-        print(f"❌ {name} 買われすぎ: {total_txns}件")
-        return False, []
-
-    # 条件7: 買い/売り比率 ≥ 2.0
-    if sells == 0 or buys / sells < 2.0:
-        print(f"❌ {name} 買い優勢でない: {buys}買/{sells}売")
-        return False, []
-    reasons.append(f"✅ 買い優勢: {buys}買/{sells}売")
-
-    # 条件8: 1H価格上昇 ≥ 20%
-    price_change_1h = dex.get("priceChange", {}).get("h1", 0)
-    if price_change_1h < 20:
-        print(f"❌ {name} 価格上昇不足: +{price_change_1h:.1f}%")
-        return False, []
-    reasons.append(f"✅ 1H: +{price_change_1h:.1f}%")
-
-    # 条件9: DexScreenerのヘッダー画像（bannerUrl）が設定されているか
-    banner = dex.get("info", {}).get("header", "")
-    if not banner:
+    # 条件7: ヘッダー画像あり
+    if not has_header_image(dex):
         print(f"❌ {name} ヘッダー画像なし")
         return False, []
     reasons.append("✅ ヘッダー画像あり")
@@ -187,25 +176,27 @@ def build_message(data: dict, reasons: list[str]) -> str:
 
 # ── トークン評価タスク（並列処理） ────────────────
 async def evaluate_token(data: dict):
+    name = data.get("name", "???")
     try:
-        print(f"🚀 評価開始: {data.get('name', '???')} (${data.get('symbol', '???')}) | {data.get('solAmount', 0):.4f} SOL")
+        print(f"🚀 評価開始: {name} (${data.get('symbol', '???')}) | {data.get('solAmount', 0):.4f} SOL")
 
         ok, reasons = await passes_filter(data)
 
         if ok:
             msg = build_message(data, reasons)
             await send_telegram(msg)
-            print(f"✅ 通知送信: {data.get('name')}")
+            print(f"✅ 通知送信: {name}")
         else:
-            print(f"❌ フィルター落ち: {data.get('name')} | {reasons}")
+            print(f"❌ フィルター落ち: {name} | {reasons}")
 
     except Exception as e:
-        print(f"🔥 evaluate_tokenクラッシュ: {e}")
+        print(f"💥 タスクエラー ({name}): {e}")
+
 
 # ── メインループ ───────────────────────────────
 async def listen():
     print("👂 Pump.fun監視開始...")
-    await send_telegram("🤖 スナイパーBot起動しました（DexScreener統合版）")
+    await send_telegram("🤖 スナイパーBot起動しました（v2: DexScreener統合版）")
 
     while True:
         try:
@@ -216,7 +207,7 @@ async def listen():
                 async for message in ws:
                     data = json.loads(message)
                     # 各トークンの評価を並列タスクとして起動
-                    # （3分待ちの間も新規トークンを受信し続ける）
+                    # （300秒待ちの間も新規トークンを受信し続ける）
                     asyncio.create_task(evaluate_token(data))
 
         except Exception as e:
