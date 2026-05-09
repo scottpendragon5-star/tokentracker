@@ -62,9 +62,9 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
 
     # フェーズ1: 即時フィルター（Pump.funデータ）
 
-    # 条件1: 初期購入 ≥ 0.05 SOL（solAmountがSOL実額、initialBuyはトークン数量）
+    # 条件1: 初期購入 ≥ 1.00 SOL（solAmountがSOL実額、initialBuyはトークン数量）
     sol_amount = data.get("solAmount", 0)
-    if sol_amount < 0.05:
+    if sol_amount < 1.00:
         return False, []
     reasons.append(f"✅ 初期購入: {sol_amount:.4f} SOL")
 
