@@ -151,9 +151,9 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
 
     # フェーズ2: DexScreener＋GoPlusフィルター（300秒後）
 
-    print(f"⏳ {name} を300秒後にDexScreener・GoPlusで確認...")
-    await asyncio.sleep(300)
-    print(f"⏱ 300秒経過: {name}")
+    print(f"⏳ {name} を10分後にDexScreener・GoPlusで確認...")
+    await asyncio.sleep(600)
+    print(f"⏱ 10分経過: {name}")
 
     # DexScreenerへの反映遅延に備えて最大3回リトライ（30秒間隔）
     dex = {}
@@ -222,7 +222,7 @@ def build_message(data: dict, reasons: list[str]) -> str:
     return (
         f"🚨 <b>新規トークン検出</b>\n\n"
         f"<b>{name}</b> (${symbol})\n\n"
-        f"📋 Mint: <code>{mint}</code>\n"
+        f"📋 CA: <code>{mint}</code>\n"
         f"👤 Dev: <code>{dev[:8]}...{dev[-4:]}</code>\n"
         f"💰 初期購入: {sol_amount:.4f} SOL\n\n"
         f"<b>通過条件:</b>\n{reasons_text}\n\n"
@@ -244,7 +244,8 @@ async def evaluate_token(data: dict):
             await send_telegram(msg)
             print(f"✅ 通知送信: {name}")
         else:
-            print(f"❌ フィルター落ち: {name} | {reasons}")
+            mint = data.get("mint", "N/A")
+            print(f"❌ フィルター落ち: {name} | CA: {mint} | {reasons}")
 
     except Exception as e:
         print(f"💥 タスクエラー ({name}): {e}")
