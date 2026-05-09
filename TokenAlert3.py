@@ -54,7 +54,7 @@ def has_header_image(dex: dict) -> bool:
 
 
 # ── フィルター ─────────────────────────────────
-BLACKLIST_KEYWORDS = ["safe", "moon", "inu", "elon", "doge2", "baby"]
+BLACKLIST_KEYWORDS = ["safe", "moon", "inu", "elon", "doge2", "baby", "musk", "together", "cock", "penis", "anal"]
 
 async def passes_filter(data: dict) -> tuple[bool, list[str]]:
     reasons = []
@@ -62,16 +62,18 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
 
     # フェーズ1: 即時フィルター（Pump.funデータ）
 
-    # 条件1: 初期購入 ≥ 1.00 SOL（solAmountがSOL実額、initialBuyはトークン数量）
+    # 条件1: 初期購入 ≥ 3.00 SOL（solAmountがSOL実額、initialBuyはトークン数量）
     sol_amount = data.get("solAmount", 0)
-    if sol_amount < 1.00:
+    if sol_amount < 3.00:
         return False, []
     reasons.append(f"✅ 初期購入: {sol_amount:.4f} SOL")
 
-    # 条件2: 名前・シンボルあり
+    # 条件2: 名前・シンボルあり、かつ名前が2文字以上
     name = data.get("name", "")
     symbol = data.get("symbol", "")
     if not (name and symbol):
+        return False, []
+    if len(name) <= 1:
         return False, []
     reasons.append("✅ 名前・シンボルあり")
 
@@ -115,21 +117,18 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
         print(f"❌ {name} DexScreenerに登録されていません")
         return False, []
 
-    # 条件6: 1H総取引件数 ≥ 50（MAKERS数の代替）
-    txns_h1 = dex.get("txns", {}).get("h1", {})
-    buys = txns_h1.get("buys", 0)
-    sells = txns_h1.get("sells", 0)
-    total_txns = buys + sells
-    if total_txns < 50:
-        print(f"❌ {name} 取引件数不足: {total_txns}件")
-        return False, []
-    reasons.append(f"✅ 1H取引: {total_txns}件")
-
-    # 条件7: ヘッダー画像あり
+    # 条件6: ヘッダー画像あり
     if not has_header_image(dex):
         print(f"❌ {name} ヘッダー画像なし")
         return False, []
     reasons.append("✅ ヘッダー画像あり")
+
+    # 条件7: 現在価格 ≤ 0.000001 SOL（割安・初期段階のトークンのみ対象）
+    price_native = float(dex.get("priceNative", 1))
+    if price_native > 0.000001:
+        print(f"❌ {name} 価格が高すぎ: {price_native:.8f} SOL")
+        return False, []
+    reasons.append(f"✅ 現在価格: {price_native:.8f} SOL")
 
     return True, reasons
 
