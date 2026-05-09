@@ -48,9 +48,55 @@ async def get_dexscreener_data(mint: str) -> dict:
         return {}
 
 
+# ── GoPlusセキュリティデータ取得 ────────────────
+async def get_goplus_data(mint: str) -> dict:
+    url = f"https://api.gopluslabs.io/api/v1/solana/token_security/{mint}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as r:
+                data = await r.json()
+                return data.get("result", {}).get(mint, {})
+    except Exception as e:
+        print(f"GoPlusエラー: {e}")
+        return {}
+
+
 # ── ヘッダー画像チェック ────────────────────────
 def has_header_image(dex: dict) -> bool:
     return bool(dex.get("info", {}).get("header", ""))
+
+
+# ── ラグプルフィルター ──────────────────────────
+async def passes_rugpull_filter(mint: str) -> tuple[bool, list[str]]:
+    reasons = []
+    result = await get_goplus_data(mint)
+
+    if not result:
+        reasons.append(f"❌ GoPlusデータ取得失敗: {mint[:8]}")
+        return False, reasons
+
+    # 条件1: 流動性ロック
+    lp_locked = int(result.get("lp_locked", 0))
+    if lp_locked != 1:
+        reasons.append(f"❌ 流動性未ロック")
+        return False, reasons
+    reasons.append("✅ 流動性ロック済み")
+
+    # 条件2: Honeypot非該当
+    is_honeypot = result.get("is_honeypot", "0")
+    if is_honeypot == "1":
+        reasons.append(f"❌ Honeypot検出")
+        return False, reasons
+    reasons.append("✅ Honeypot非該当")
+
+    # 条件3: Top10所有率 < 30%
+    top10_rate = float(result.get("top10_holder_rate", 1.0))
+    if top10_rate >= 0.30:
+        reasons.append(f"❌ 所有権集中: Top10={top10_rate * 100:.1f}%")
+        return False, reasons
+    reasons.append(f"✅ 所有権分散: Top10={top10_rate * 100:.1f}%")
+
+    return True, reasons
 
 
 # ── フィルター ─────────────────────────────────
@@ -103,9 +149,9 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
             return False, reasons
         reasons.append(f"✅ Dev残高: {dev_balance:.2f} SOL")
 
-    # フェーズ2: DexScreenerフィルター（300秒後）
+    # フェーズ2: DexScreener＋GoPlusフィルター（300秒後）
 
-    print(f"⏳ {name} を300秒後にDexScreenerで確認...")
+    print(f"⏳ {name} を300秒後にDexScreener・GoPlusで確認...")
     await asyncio.sleep(300)
     print(f"⏱ 300秒経過: {name}")
 
@@ -135,6 +181,12 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
         reasons.append(f"❌ 価格が高すぎ: {price_native:.8f} SOL")
         return False, reasons
     reasons.append(f"✅ 現在価格: {price_native:.8f} SOL")
+
+    # 条件8〜10: ラグプルフィルター（GoPlus Security）
+    ok, rug_reasons = await passes_rugpull_filter(mint)
+    reasons.extend(rug_reasons)
+    if not ok:
+        return False, reasons
 
     return True, reasons
 
@@ -201,7 +253,7 @@ async def evaluate_token(data: dict):
 # ── メインループ ───────────────────────────────
 async def listen():
     print("👂 Pump.fun監視開始...")
-    await send_telegram("🤖 スナイパーBot起動しました（v2: DexScreener統合版）")
+    await send_telegram("🤖 スナイパーBot起動しました（v3: GoPlus統合版）")
 
     while True:
         try:
