@@ -54,7 +54,7 @@ def has_header_image(dex: dict) -> bool:
 
 
 # ── フィルター ─────────────────────────────────
-BLACKLIST_KEYWORDS = ["safe", "moon", "inu", "elon", "doge2", "baby", "musk", "together", "cock", "penis", "anal"]
+BLACKLIST_KEYWORDS = ["safe", "moon", "inu", "elon", "doge2", "baby", "musk", "together", "cock", "penis", "anal", "nigga"]
 
 async def passes_filter(data: dict) -> tuple[bool, list[str]]:
     reasons = []
@@ -65,27 +65,33 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
     # 条件1: 初期購入 ≥ 3.00 SOL（solAmountがSOL実額、initialBuyはトークン数量）
     sol_amount = data.get("solAmount", 0)
     if sol_amount < 3.00:
-        return False, []
+        reasons.append(f"❌ 初期購入不足: {sol_amount:.4f} SOL")
+        return False, reasons
     reasons.append(f"✅ 初期購入: {sol_amount:.4f} SOL")
 
-    # 条件2: 名前・シンボルあり、かつ名前が2文字以上
+    # 条件2: 名前・シンボルあり、かつ名前が3文字以上
     name = data.get("name", "")
     symbol = data.get("symbol", "")
     if not (name and symbol):
-        return False, []
-    if len(name) <= 1:
-        return False, []
+        reasons.append("❌ 名前・シンボルなし")
+        return False, reasons
+    if len(name) <= 2:
+        reasons.append(f"❌ 名前が短すぎ: '{name}'")
+        return False, reasons
     reasons.append("✅ 名前・シンボルあり")
 
     # 条件3: 名前ブラックリスト
-    if any(kw in name.lower() for kw in BLACKLIST_KEYWORDS):
-        return False, []
+    matched = [kw for kw in BLACKLIST_KEYWORDS if kw in name.lower()]
+    if matched:
+        reasons.append(f"❌ NGワード: {matched}")
+        return False, reasons
     reasons.append("✅ ブラックリスト通過")
 
     # 条件4: メタデータあり
     uri = data.get("uri", "")
     if not uri.startswith("https://"):
-        return False, []
+        reasons.append("❌ メタデータなし")
+        return False, reasons
     reasons.append("✅ メタデータあり")
 
     # 条件5: Dev残高 ≥ 3 SOL
@@ -93,8 +99,8 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
     if dev:
         dev_balance = await get_sol_balance(dev)
         if dev_balance < 3.0:
-            print(f"❌ {name} Dev残高不足: {dev_balance:.2f} SOL")
-            return False, []
+            reasons.append(f"❌ Dev残高不足: {dev_balance:.2f} SOL")
+            return False, reasons
         reasons.append(f"✅ Dev残高: {dev_balance:.2f} SOL")
 
     # フェーズ2: DexScreenerフィルター（300秒後）
@@ -114,20 +120,20 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
             await asyncio.sleep(30)
 
     if not dex:
-        print(f"❌ {name} DexScreenerに登録されていません")
-        return False, []
+        reasons.append("❌ DexScreener未登録")
+        return False, reasons
 
     # 条件6: ヘッダー画像あり
     if not has_header_image(dex):
-        print(f"❌ {name} ヘッダー画像なし")
-        return False, []
+        reasons.append("❌ ヘッダー画像なし")
+        return False, reasons
     reasons.append("✅ ヘッダー画像あり")
 
     # 条件7: 現在価格 ≤ 0.000001 SOL（割安・初期段階のトークンのみ対象）
     price_native = float(dex.get("priceNative", 1))
     if price_native > 0.000001:
-        print(f"❌ {name} 価格が高すぎ: {price_native:.8f} SOL")
-        return False, []
+        reasons.append(f"❌ 価格が高すぎ: {price_native:.8f} SOL")
+        return False, reasons
     reasons.append(f"✅ 現在価格: {price_native:.8f} SOL")
 
     return True, reasons
