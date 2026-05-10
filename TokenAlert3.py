@@ -100,7 +100,7 @@ async def passes_rugpull_filter(mint: str) -> tuple[bool, list[str]]:
 
 
 # ── フィルター ─────────────────────────────────
-BLACKLIST_KEYWORDS = ["safe", "moon", "inu", "elon", "doge2", "baby", "musk", "together", "cock", "penis", "anal", "nigga"]
+BLACKLIST_KEYWORDS = ["safe", "moon", "inu", "elon", "doge2", "baby", "musk", "together", "cock", "penis", "anal", "nigga", "nigger"]
 
 async def passes_filter(data: dict) -> tuple[bool, list[str]]:
     reasons = []
@@ -108,9 +108,9 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
 
     # フェーズ1: 即時フィルター（Pump.funデータ）
 
-    # 条件1: 初期購入 ≥ 3.00 SOL（solAmountがSOL実額、initialBuyはトークン数量）
+    # 条件1: 初期購入 ≥ 0.49 SOL（solAmountがSOL実額、initialBuyはトークン数量）
     sol_amount = data.get("solAmount", 0)
-    if sol_amount < 3.00:
+    if sol_amount < 0.49:
         reasons.append(f"❌ 初期購入不足: {sol_amount:.4f} SOL")
         return False, reasons
     reasons.append(f"✅ 初期購入: {sol_amount:.4f} SOL")
