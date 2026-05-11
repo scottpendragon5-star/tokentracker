@@ -32,6 +32,25 @@ async def get_sol_balance(pubkey: str) -> float:
         return 0.0
 
 
+# ── Dev walletトランザクション履歴件数取得 ──────────
+async def get_wallet_tx_count(pubkey: str) -> int:
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getSignaturesForAddress",
+        "params": [pubkey, {"limit": 10}]
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(RPC_URL, json=payload) as r:
+                data = await r.json()
+                signatures = data.get("result", [])
+                return len(signatures)
+    except Exception as e:
+        print(f"TX履歴取得エラー: {e}")
+        return 0
+
+
 # ── DexScreenerデータ取得 ───────────────────────
 async def get_dexscreener_data(mint: str) -> dict:
     url = f"https://api.dexscreener.com/latest/dex/tokens/{mint}"
@@ -66,6 +85,14 @@ def has_header_image(dex: dict) -> bool:
     return bool(dex.get("info", {}).get("header", ""))
 
 
+# ── Airdrop集中検出 ─────────────────────────────
+def passes_airdrop_filter(result: dict) -> tuple[bool, str]:
+    airdrop_rate = float(result.get("airdrop_rate", 0.0))
+    if airdrop_rate >= 0.30:
+        return False, f"❌ Airdrop集中: {airdrop_rate * 100:.1f}%"
+    return True, f"✅ Airdrop比率正常: {airdrop_rate * 100:.1f}%"
+
+
 # ── ラグプルフィルター ──────────────────────────
 async def passes_rugpull_filter(mint: str) -> tuple[bool, list[str]]:
     reasons = []
@@ -78,14 +105,14 @@ async def passes_rugpull_filter(mint: str) -> tuple[bool, list[str]]:
     # 条件1: 流動性ロック
     lp_locked = int(result.get("lp_locked", 0))
     if lp_locked != 1:
-        reasons.append(f"❌ 流動性未ロック")
+        reasons.append("❌ 流動性未ロック")
         return False, reasons
     reasons.append("✅ 流動性ロック済み")
 
     # 条件2: Honeypot非該当
     is_honeypot = result.get("is_honeypot", "0")
     if is_honeypot == "1":
-        reasons.append(f"❌ Honeypot検出")
+        reasons.append("❌ Honeypot検出")
         return False, reasons
     reasons.append("✅ Honeypot非該当")
 
@@ -96,11 +123,17 @@ async def passes_rugpull_filter(mint: str) -> tuple[bool, list[str]]:
         return False, reasons
     reasons.append(f"✅ 所有権分散: Top10={top10_rate * 100:.1f}%")
 
+    # 条件4: Airdrop集中検出
+    ok, reason = passes_airdrop_filter(result)
+    reasons.append(reason)
+    if not ok:
+        return False, reasons
+
     return True, reasons
 
 
 # ── フィルター ─────────────────────────────────
-BLACKLIST_KEYWORDS = ["safe", "moon", "inu", "elon", "doge2", "baby", "musk", "together", "cock", "penis", "anal", "nigga", "nigger"]
+BLACKLIST_KEYWORDS = ["safe", "moon", "inu", "elon", "doge2", "baby", "musk", "together", "cock", "penis", "anal", "nigga"]
 
 async def passes_filter(data: dict) -> tuple[bool, list[str]]:
     reasons = []
@@ -140,16 +173,24 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
         return False, reasons
     reasons.append("✅ メタデータあり")
 
-    # 条件5: Dev残高 ≥ 3 SOL
+    # 条件5: Dev残高 ≥ 1.0 SOL
     dev = data.get("traderPublicKey", "")
     if dev:
         dev_balance = await get_sol_balance(dev)
-        if dev_balance < 3.0:
+        if dev_balance < 1.0:
             reasons.append(f"❌ Dev残高不足: {dev_balance:.2f} SOL")
             return False, reasons
         reasons.append(f"✅ Dev残高: {dev_balance:.2f} SOL")
 
-    # フェーズ2: DexScreener＋GoPlusフィルター（300秒後）
+    # 条件6: Fresh Wallet検出（Dev walletのTX履歴 ≥ 10件）
+    if dev:
+        tx_count = await get_wallet_tx_count(dev)
+        if tx_count < 10:
+            reasons.append(f"❌ Fresh wallet検出: TX数={tx_count}件")
+            return False, reasons
+        reasons.append(f"✅ Dev wallet実績あり: {tx_count}件以上")
+
+    # フェーズ2: DexScreener＋GoPlusフィルター（10分後）
 
     print(f"⏳ {name} を10分後にDexScreener・GoPlusで確認...")
     await asyncio.sleep(600)
@@ -169,20 +210,20 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
         reasons.append("❌ DexScreener未登録")
         return False, reasons
 
-    # 条件6: ヘッダー画像あり
+    # 条件7: ヘッダー画像あり
     if not has_header_image(dex):
         reasons.append("❌ ヘッダー画像なし")
         return False, reasons
     reasons.append("✅ ヘッダー画像あり")
 
-    # 条件7: 現在価格 ≤ 0.000001 SOL（割安・初期段階のトークンのみ対象）
+    # 条件8: 現在価格 ≤ 0.000001 SOL（割安・初期段階のトークンのみ対象）
     price_native = float(dex.get("priceNative", 1))
     if price_native > 0.000001:
         reasons.append(f"❌ 価格が高すぎ: {price_native:.8f} SOL")
         return False, reasons
     reasons.append(f"✅ 現在価格: {price_native:.8f} SOL")
 
-    # 条件8〜10: ラグプルフィルター（GoPlus Security）
+    # 条件9〜12: ラグプル＋Airdropフィルター（GoPlus Security）
     ok, rug_reasons = await passes_rugpull_filter(mint)
     reasons.extend(rug_reasons)
     if not ok:
@@ -254,7 +295,7 @@ async def evaluate_token(data: dict):
 # ── メインループ ───────────────────────────────
 async def listen():
     print("👂 Pump.fun監視開始...")
-    await send_telegram("🤖 スナイパーBot起動しました（v3: GoPlus統合版）")
+    await send_telegram("🤖 スナイパーBot起動しました（v4: Fresh Wallet・Airdrop検出統合版）")
 
     while True:
         try:
@@ -265,7 +306,7 @@ async def listen():
                 async for message in ws:
                     data = json.loads(message)
                     # 各トークンの評価を並列タスクとして起動
-                    # （300秒待ちの間も新規トークンを受信し続ける）
+                    # （10分待ちの間も新規トークンを受信し続ける）
                     asyncio.create_task(evaluate_token(data))
 
         except Exception as e:
