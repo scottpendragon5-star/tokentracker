@@ -67,62 +67,56 @@ async def get_dexscreener_data(mint: str) -> dict:
         return {}
 
 
-# ── GoPlusセキュリティデータ取得 ────────────────
-async def get_goplus_data(mint: str) -> dict:
-    url = f"https://api.gopluslabs.io/api/v1/solana/token_security/{mint}"
+# ── RugCheckデータ取得 ──────────────────────────
+async def get_rugcheck_data(mint: str) -> dict:
+    url = f"https://api.rugcheck.xyz/v1/tokens/{mint}/report"
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as r:
-                data = await r.json()
-                return data.get("result", {}).get(mint, {})
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                return await r.json()
     except Exception as e:
-        print(f"GoPlusエラー: {e}")
+        print(f"RugCheckエラー: {e}")
         return {}
 
 
-# ── Airdrop集中検出 ─────────────────────────────
-def passes_airdrop_filter(result: dict) -> tuple[bool, str]:
-    airdrop_rate = float(result.get("airdrop_rate", 0.0))
-    if airdrop_rate >= 0.30:
-        return False, f"❌ Airdrop集中: {airdrop_rate * 100:.1f}%"
-    return True, f"✅ Airdrop比率正常: {airdrop_rate * 100:.1f}%"
-
-
-# ── ラグプルフィルター ──────────────────────────
-async def passes_rugpull_filter(mint: str) -> tuple[bool, list[str]]:
+# ── RugCheckフィルター ──────────────────────────
+async def passes_rugcheck_filter(mint: str) -> tuple[bool, list[str]]:
     reasons = []
-    result = await get_goplus_data(mint)
+    data = await get_rugcheck_data(mint)
 
-    if not result:
-        reasons.append(f"❌ GoPlusデータ取得失敗: {mint[:8]}")
+    if not data:
+        reasons.append(f"❌ RugCheckデータ取得失敗: {mint[:8]}")
         return False, reasons
 
-    # 条件1: 流動性ロック
-    lp_locked = int(result.get("lp_locked", 0))
-    if lp_locked != 1:
-        reasons.append("❌ 流動性未ロック")
+    # 条件9: リスク判定（dangerレベルのリスクがないこと）
+    risks = data.get("risks", [])
+    danger_risks = [r["name"] for r in risks if r.get("level") == "danger"]
+    if danger_risks:
+        reasons.append(f"❌ RugCheck危険リスク: {danger_risks}")
         return False, reasons
-    reasons.append("✅ 流動性ロック済み")
+    reasons.append("✅ RugCheck: 危険リスクなし")
 
-    # 条件2: Honeypot非該当
-    is_honeypot = result.get("is_honeypot", "0")
-    if is_honeypot == "1":
-        reasons.append("❌ Honeypot検出")
+    # 条件10: Top10所有率 < 30%
+    top_holders = data.get("topHolders", [])
+    top10_pct = sum(h.get("pct", 0) for h in top_holders[:10]) * 100
+    if top10_pct >= 30:
+        reasons.append(f"❌ 所有権集中: Top10={top10_pct:.1f}%")
         return False, reasons
-    reasons.append("✅ Honeypot非該当")
+    reasons.append(f"✅ 所有権分散: Top10={top10_pct:.1f}%")
 
-    # 条件3: Top10所有率 < 30%
-    top10_rate = float(result.get("top10_holder_rate", 1.0))
-    if top10_rate >= 0.30:
-        reasons.append(f"❌ 所有権集中: Top10={top10_rate * 100:.1f}%")
+    # 条件11: Mintオーソリティ無効化済み
+    mint_authority = data.get("mintAuthority", None)
+    if mint_authority is not None:
+        reasons.append("❌ Mintオーソリティ有効")
         return False, reasons
-    reasons.append(f"✅ 所有権分散: Top10={top10_rate * 100:.1f}%")
+    reasons.append("✅ Mintオーソリティ無効化済み")
 
-    # 条件4: Airdrop集中検出
-    ok, reason = passes_airdrop_filter(result)
-    reasons.append(reason)
-    if not ok:
+    # 条件12: Freezeオーソリティ無効化済み
+    freeze_authority = data.get("freezeAuthority", None)
+    if freeze_authority is not None:
+        reasons.append("❌ Freezeオーソリティ有効")
         return False, reasons
+    reasons.append("✅ Freezeオーソリティ無効化済み")
 
     return True, reasons
 
@@ -134,7 +128,7 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
     reasons = []
     mint = data.get("mint", "")
 
-    # フェーズ1: 即時フィルター（Pump.funデータ）
+    # フェーズ1: 即時フィルター（Pump.funデータ + RPC）
 
     # 条件1: 初期購入 ≥ 0.49 SOL（solAmountがSOL実額、initialBuyはトークン数量）
     sol_amount = data.get("solAmount", 0)
@@ -185,9 +179,9 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
             return False, reasons
         reasons.append(f"✅ Dev wallet実績あり: {tx_count}件以上")
 
-    # フェーズ2: DexScreener＋GoPlusフィルター（10分後）
+    # フェーズ2: DexScreener＋RugCheckフィルター（600秒後）
 
-    print(f"⏳ {name} を10分後にDexScreener・GoPlusで確認...")
+    print(f"⏳ {name} を10分後にDexScreener・RugCheckで確認...")
     await asyncio.sleep(600)
     print(f"⏱ 10分経過: {name}")
 
@@ -212,8 +206,8 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
         return False, reasons
     reasons.append(f"✅ 現在価格: {price_native:.8f} SOL")
 
-    # 条件8〜11: ラグプル＋Airdropフィルター（GoPlus Security）
-    ok, rug_reasons = await passes_rugpull_filter(mint)
+    # 条件8〜11: RugCheckフィルター
+    ok, rug_reasons = await passes_rugcheck_filter(mint)
     reasons.extend(rug_reasons)
     if not ok:
         return False, reasons
@@ -284,7 +278,7 @@ async def evaluate_token(data: dict):
 # ── メインループ ───────────────────────────────
 async def listen():
     print("👂 Pump.fun監視開始...")
-    await send_telegram("🤖 スナイパーBot起動しました（ヘッダー画像条件なし版）")
+    await send_telegram("🤖 スナイパーBot起動しました（v5: RugCheck統合・ヘッダー画像条件なし版）")
 
     while True:
         try:
