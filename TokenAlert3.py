@@ -96,9 +96,12 @@ async def passes_rugcheck_filter(mint: str) -> tuple[bool, list[str]]:
         return False, reasons
     reasons.append("✅ RugCheck: 危険リスクなし")
 
-    # 条件10: Top10所有率 < 30%
+    # 条件10: Top10所有率 < 30%（pctは既に%スケール、* 100は不要）
     top_holders = data.get("topHolders", [])
-    top10_pct = sum(h.get("pct", 0) for h in top_holders[:10]) * 100
+    if not top_holders:
+        reasons.append("❌ 所有権データなし（topHolders未取得）")
+        return False, reasons
+    top10_pct = sum(h.get("pct", 0) for h in top_holders[:10])
     if top10_pct >= 30:
         reasons.append(f"❌ 所有権集中: Top10={top10_pct:.1f}%")
         return False, reasons
