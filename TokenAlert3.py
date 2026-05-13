@@ -111,11 +111,14 @@ async def passes_rugcheck_filter(mint: str) -> tuple[bool, list[str]]:
     if not real_holders:
         reasons.append("❌ 実ホルダーなし（Bonding Curveのみ保有）")
         return False, reasons
+    if len(real_holders) < 5:
+        reasons.append(f"❌ 実ホルダー不足: {len(real_holders)}人")
+        return False, reasons
     top10_pct = sum(h.get("pct", 0) for h in real_holders[:10])
     if top10_pct >= 30:
-        reasons.append(f"❌ 所有権集中: Top10={top10_pct:.1f}%")
+        reasons.append(f"❌ 所有権集中: 実ホルダーTop10={top10_pct:.1f}%")
         return False, reasons
-    reasons.append(f"✅ 所有権分散: Top10={top10_pct:.1f}%")
+    reasons.append(f"✅ 所有権分散: 実ホルダーTop10={top10_pct:.1f}%")
 
     # 条件11: Mintオーソリティ無効化済み
     mint_authority = data.get("mintAuthority", None)
