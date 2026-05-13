@@ -96,12 +96,22 @@ async def passes_rugcheck_filter(mint: str) -> tuple[bool, list[str]]:
         return False, reasons
     reasons.append("✅ RugCheck: 危険リスクなし")
 
-    # 条件10: Top10所有率 < 30%（pctは既に%スケール、* 100は不要）
+    # 条件10: Top10所有率 < 30%（AMM/System Programを除いた実ホルダーで計算）
     top_holders = data.get("topHolders", [])
     if not top_holders:
         reasons.append("❌ 所有権データなし（topHolders未取得）")
         return False, reasons
-    top10_pct = sum(h.get("pct", 0) for h in top_holders[:10])
+    known = data.get("knownAccounts", {})
+    amm_addrs = {addr for addr, info in known.items() if info.get("type") == "AMM"}
+    real_holders = [
+        h for h in top_holders
+        if h.get("owner", "") not in amm_addrs
+        and not h.get("owner", "").startswith("11111111111")
+    ]
+    if not real_holders:
+        reasons.append("❌ 実ホルダーなし（Bonding Curveのみ保有）")
+        return False, reasons
+    top10_pct = sum(h.get("pct", 0) for h in real_holders[:10])
     if top10_pct >= 30:
         reasons.append(f"❌ 所有権集中: Top10={top10_pct:.1f}%")
         return False, reasons
