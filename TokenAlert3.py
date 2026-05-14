@@ -61,7 +61,9 @@ async def get_dexscreener_data(mint: str) -> dict:
                 pairs = data.get("pairs", [])
                 if not pairs:
                     return {}
-                return pairs[0]
+                # pumpfunペアを優先して返す（BC卒業チェックに使用）
+                pumpfun_pair = next((p for p in pairs if p.get("dexId") == "pumpfun"), None)
+                return pumpfun_pair if pumpfun_pair else pairs[0]
     except Exception as e:
         print(f"DexScreenerエラー: {e}")
         return {}
@@ -81,7 +83,8 @@ async def get_rugcheck_data(mint: str) -> dict:
 
 # ── ヘッダー画像チェック ────────────────────────
 def has_header_image(dex: dict) -> bool:
-    return bool(dex.get("info", {}).get("header", ""))
+    info = dex.get("info") or {}
+    return bool(info.get("header", ""))
 
 
 # ── RugCheckフィルター ──────────────────────────
@@ -227,13 +230,26 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
         return False, reasons
     reasons.append(f"✅ 現在価格: {price_native:.8f} SOL")
 
-    # 条件8〜11: RugCheckフィルター
+    # 条件8: 1H買い件数 ≥ 50件（取引が死んでいるトークンを排除）
+    buys_h1 = dex.get("txns", {}).get("h1", {}).get("buys", 0)
+    if buys_h1 < 50:
+        reasons.append(f"❌ 1H買い件数不足: {buys_h1}件")
+        return False, reasons
+    reasons.append(f"✅ 1H買い件数: {buys_h1}件")
+
+    # 条件9〜12: RugCheckフィルター
     ok, rug_reasons = await passes_rugcheck_filter(mint)
     reasons.extend(rug_reasons)
     if not ok:
         return False, reasons
 
-    # 条件12: ヘッダー画像あり（最終スクリーン）
+    # 条件13: Bonding Curve未卒業（pumpfunペアが存在すること）
+    if dex.get("dexId") != "pumpfun":
+        reasons.append(f"❌ Bonding Curve卒業済み (dexId={dex.get('dexId', 'unknown')})")
+        return False, reasons
+    reasons.append("✅ Bonding Curve上で流通中")
+
+    # 条件14: ヘッダー画像あり（最終スクリーン）
     if not has_header_image(dex):
         reasons.append("❌ ヘッダー画像なし")
         return False, reasons
