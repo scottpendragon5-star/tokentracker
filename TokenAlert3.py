@@ -79,6 +79,11 @@ async def get_rugcheck_data(mint: str) -> dict:
         return {}
 
 
+# ── ヘッダー画像チェック ────────────────────────
+def has_header_image(dex: dict) -> bool:
+    return bool(dex.get("info", {}).get("header", ""))
+
+
 # ── RugCheckフィルター ──────────────────────────
 async def passes_rugcheck_filter(mint: str) -> tuple[bool, list[str]]:
     reasons = []
@@ -228,6 +233,12 @@ async def passes_filter(data: dict) -> tuple[bool, list[str]]:
     if not ok:
         return False, reasons
 
+    # 条件12: ヘッダー画像あり（最終スクリーン）
+    if not has_header_image(dex):
+        reasons.append("❌ ヘッダー画像なし")
+        return False, reasons
+    reasons.append("✅ ヘッダー画像あり")
+
     return True, reasons
 
 
@@ -294,7 +305,7 @@ async def evaluate_token(data: dict):
 # ── メインループ ───────────────────────────────
 async def listen():
     print("👂 Pump.fun監視開始...")
-    await send_telegram("🤖 スナイパーBot起動しました（v5: RugCheck統合・ヘッダー画像条件なし版）")
+    await send_telegram("🤖 スナイパーBot起動しました（v6: ヘッダー画像最終スクリーン版）")
 
     while True:
         try:
@@ -304,6 +315,8 @@ async def listen():
 
                 async for message in ws:
                     data = json.loads(message)
+                    # 各トークンの評価を並列タスクとして起動
+                    # （600秒待ちの間も新規トークンを受信し続ける）
                     asyncio.create_task(evaluate_token(data))
 
         except Exception as e:
