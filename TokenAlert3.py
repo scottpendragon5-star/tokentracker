@@ -118,8 +118,13 @@ async def get_dev_created_tokens(dev: str) -> list[str] | None:
             async with session.get(
                 url, params=params, timeout=aiohttp.ClientTimeout(total=15)
             ) as r:
+                if r.status != 200:
+                    text = await r.text()
+                    print(f"Helius HTTPエラー: status={r.status} body={text[:200]}")
+                    return None
                 txs = await r.json()
                 if not isinstance(txs, list):
+                    print(f"Helius非listレスポンス: {str(txs)[:200]}")
                     return None
                 mints = set()
                 for tx in txs:
@@ -128,8 +133,11 @@ async def get_dev_created_tokens(dev: str) -> list[str] | None:
                         if mint_addr.endswith("pump"):
                             mints.add(mint_addr)
                 return list(mints)
+    except asyncio.TimeoutError:
+        print(f"Heliusタイムアウト: dev={dev[:8]}...")
+        return None
     except Exception as e:
-        print(f"Heliusエラー: {e}")
+        print(f"Heliusエラー: {type(e).__name__}: {e}")
         return None  # 失敗 → チェックスキップ
 
 
@@ -427,7 +435,7 @@ def build_message(data: dict, reasons: list[str]) -> str:
         f"🚨 <b>新規トークン検出</b>\n\n"
         f"<b>{name}</b> (${symbol})\n\n"
         f"📋 CA: <code>{mint}</code>\n"
-        f"👤 Dev: <code>{dev[:8]}...{dev[-4:]}</code>\n"
+        f"👤 Dev: <code>{dev}</code>\n"
         f"💰 初期購入: {sol_amount:.4f} SOL\n\n"
         f"<b>通過条件:</b>\n{reasons_text}\n\n"
         f"🔗 <a href='{pump_url}'>Pump.fun</a>　"
