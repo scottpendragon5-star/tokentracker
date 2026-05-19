@@ -25,7 +25,7 @@ async def get_sol_balance(pubkey: str) -> float:
     }
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(RPC_URL, json=payload) as r:
+            async with session.post(RPC_URL, json=payload, ssl=False) as r:
                 data = await r.json()
                 lamports = data.get("result", {}).get("value", 0)
                 return lamports / 1e9
@@ -44,7 +44,7 @@ async def get_wallet_tx_count(pubkey: str) -> int:
     }
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(RPC_URL, json=payload) as r:
+            async with session.post(RPC_URL, json=payload, ssl=False) as r:
                 data = await r.json()
                 signatures = data.get("result", [])
                 return len(signatures)
